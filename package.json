@@ -1,0 +1,29 @@
+{
+  "name": "cookbooklm",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "vite build && vite build -c vite.config.content.ts",
+    "dev": "vite",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "devDependencies": {
+    "@types/chrome": "^0.1.32",
+    "@types/node": "^25.0.5",
+    "@vitejs/plugin-react": "^5.1.2",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.1",
+    "vitest": "^4.0.16"
+  },
+  "dependencies": {
+    "jspdf": "^4.0.0",
+    "qrcode": "^1.5.4",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3"
+  }
+}
