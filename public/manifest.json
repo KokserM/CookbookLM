@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Retsept PDF (ET)",
-  "description": "Ekstraktib retsepti, tõlgib eesti keelde, teisendab meetermõõdustikku ja genereerib A4 PDF-i.",
-  "version": "0.1.0",
+  "name": "CookbookLM",
+  "description": "Extract recipes, reason safe allergen-aware substitutions with your OpenAI key, and generate printable PDFs.",
+  "version": "1.0.0",
   "icons": {
     "16": "icons/icon16.png",
     "32": "icons/icon32.png",
@@ -10,22 +10,22 @@
     "128": "icons/icon128.png"
   },
   "action": {
-    "default_title": "Retsept PDF (ET)",
+    "default_title": "CookbookLM",
     "default_icon": {
       "16": "icons/icon16.png",
       "32": "icons/icon32.png",
       "48": "icons/icon48.png",
       "128": "icons/icon128.png"
-    },
-    "default_popup": "popup.html"
+    }
+  },
+  "side_panel": {
+    "default_path": "popup.html"
   },
   "options_page": "options.html",
   "background": {
     "service_worker": "service_worker.js",
     "type": "module"
   },
-  "permissions": ["storage", "activeTab", "scripting", "downloads", "offscreen"],
+  "permissions": ["storage", "activeTab", "scripting", "downloads", "offscreen", "sidePanel", "notifications"],
   "host_permissions": ["<all_urls>"]
 }
-
-

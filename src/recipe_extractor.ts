@@ -215,6 +215,51 @@ function queryTextList(doc: Document, selectors: string[]): string[] {
   return [];
 }
 
+function textFromLikelyRecipeRoot(doc: Document): string {
+  const root = doc.querySelector("article, main, [role='main']") || doc.body;
+  return ((root as HTMLElement | null)?.innerText || root?.textContent || "").replace(/\s+/g, " ").trim();
+}
+
+function splitSentences(text: string): string[] {
+  return uniqNonEmpty(
+    text
+      .replace(/([.!?])\s+(?=[A-ZÕÄÖÜŠŽ])/g, "$1\n")
+      .split(/\n+/)
+      .map((s) => s.trim()),
+  );
+}
+
+function parseInlineIngredientBlock(block: string): string[] {
+  const unitWords = "(?:tk|g|kg|ml|l|dl|tl|sl|spl|tsp|tbsp|cup|cups|oz|lb|lbs)";
+  const qtyPattern = `(?:\\d+(?:[\\.,]\\d+)?|\\d+\\/\\d+|[¼½¾])`;
+  const marker = new RegExp(`\\s+(?=${qtyPattern}\\s*${unitWords}\\b)`, "gi");
+  return uniqNonEmpty(block.split(marker).map((s) => s.trim()));
+}
+
+function tryExtractFromEstonianArticle(doc: Document, url: string): ExtractedRecipe | null {
+  const text = textFromLikelyRecipeRoot(doc);
+  if (!text) return null;
+
+  const ingredientsMatch = text.match(/Koostisosad\s+(.+?)(?=\s+(?:Valmistamine|Valmistus|Tee nii|Juhised)\b)/i);
+  const stepsMatch = text.match(/(?:Valmistamine|Valmistus|Tee nii|Juhised)\s+(.+?)(?=\s+(?:Kommentaarid|Sisuturundus|Loe veel|Veel retsepte)\b|$)/i);
+  if (!ingredientsMatch || !stepsMatch) return null;
+
+  const ingredients = parseInlineIngredientBlock(ingredientsMatch[1] ?? "");
+  const steps = splitSentences(stepsMatch[1] ?? "");
+  if (!ingredients.length || !steps.length) return null;
+
+  const servingsMatch = text.match(/Kogus:\s*([^.!?]+?)(?=\s+Koostisosad\b)/i);
+  const title = firstText(doc.querySelector("h1")) || extractOgTitle(doc) || doc.title || "Recipe";
+  return {
+    title,
+    source_url: url,
+    ...(servingsMatch?.[1] ? { servings: cleanLine(servingsMatch[1]) } : {}),
+    ...(extractOgImage(doc) ? { hero_image_url: extractOgImage(doc) } : {}),
+    ingredients,
+    steps,
+  };
+}
+
 function tryExtractFromMicrodata(doc: Document, url: string): ExtractedRecipe | null {
   const recipeEl = doc.querySelector(
     '[itemscope][itemtype*="schema.org/Recipe"], [itemscope][itemtype*="schema.org/recipe"]',
@@ -318,7 +363,8 @@ export function extractRecipeFromDocument(doc: Document, url: string): Extracted
   return (
     tryExtractFromJsonLd(doc, url) ||
     tryExtractFromMicrodata(doc, url) ||
-    tryExtractFromHeuristics(doc, url)
+    tryExtractFromHeuristics(doc, url) ||
+    tryExtractFromEstonianArticle(doc, url)
   );
 }
 

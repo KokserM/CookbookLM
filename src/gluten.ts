@@ -5,6 +5,12 @@ export type GlutenFlag = {
   reason: string;
 };
 
+export type GlutenRoleHint = {
+  ingredient_en: string;
+  role: "thickener" | "coating" | "structure" | "hidden_sauce";
+  hint: string;
+};
+
 export type SubstitutionEt = {
   ingredient: string; // english ingredient name or metric line
   suggestions_et: string[];
@@ -87,39 +93,140 @@ function includesAny(hay: string, needles: string[]): boolean {
   return needles.some((n) => t.includes(n));
 }
 
-export function detectGlutenFlags(ingredients: Array<{ metric_en: string; ingredient?: string; original: string }>): GlutenFlag[] {
+const HIDDEN_SAUCE_KEYWORDS = [
+  "soy sauce",
+  "sojakaste",
+  "teriyaki",
+  "hoisin",
+  "oyster sauce",
+  "austrikaste",
+  "worcestershire",
+  "gravy mix",
+  "cream of mushroom soup",
+  "cream of chicken soup",
+];
+
+const COATING_KEYWORDS = ["breadcrumbs", "riivsai", "panko", "cracker", "küpsised", "crouton"];
+const FLOUR_KEYWORDS = ["all-purpose flour", "wheat flour", "flour", "nisujahu", "jahu", "spelt", "spelta"];
+
+function getGlutenReason(hay: string): string {
+  if (includesAny(hay, HIDDEN_SAUCE_KEYWORDS)) return "Likely hidden gluten in sauce or condiment";
+  if (includesAny(hay, COATING_KEYWORDS)) return "Contains breading or crumb ingredient that is usually wheat-based";
+  if (includesAny(hay, FLOUR_KEYWORDS)) return "Contains flour or another gluten grain";
+  return "Possible gluten source";
+}
+
+export function detectGlutenFlags(ingredients: Array<{ metric_en: string; ingredient?: string | undefined; original: string }>): GlutenFlag[] {
   const flags: GlutenFlag[] = [];
   for (const ing of ingredients) {
     const hay = `${ing.metric_en} ${ing.ingredient ?? ""} ${ing.original}`.toLowerCase();
     if (includesAny(hay, GLUTEN_KEYWORDS)) {
-      flags.push({ ingredient_en: ing.ingredient ?? ing.metric_en, reason: "Possible gluten source" });
+      flags.push({ ingredient_en: ing.ingredient ?? ing.metric_en, reason: getGlutenReason(hay) });
     }
   }
   return flags;
 }
 
-export function gfSubstitutionMappingEt(metricEnLine: string, ingredientName?: string): SubstitutionEt | null {
+function estimateFlourAmountTbsp(ing: ConvertedIngredient): number | null {
+  const name = `${ing.ingredient ?? ""} ${ing.original}`.toLowerCase();
+  if (!includesAny(name, ["flour", "jahu"])) return null;
+  if (!ing.parsed || !ing.qty || !ing.unit) return null;
+  const q = ing.qty;
+  const unit = ing.unit;
+  if (unit === "tbsp") return q;
+  if (unit === "tsp") return q / 3;
+  if (unit === "cup") return q * 16;
+  if (unit === "g") return q / 8; // approx 8g per tbsp flour
+  if (unit === "oz") return (q * 28.3495) / 8;
+  return null;
+}
+
+function inferGlutenRole(ing: ConvertedIngredient): GlutenRoleHint["role"] | null {
+  const t = `${ing.metric_en} ${ing.ingredient ?? ""} ${ing.original}`.toLowerCase();
+  if (includesAny(t, HIDDEN_SAUCE_KEYWORDS)) return "hidden_sauce";
+  if (includesAny(t, COATING_KEYWORDS)) return "coating";
+  if (includesAny(t, FLOUR_KEYWORDS)) {
+    const flourTbsp = estimateFlourAmountTbsp(ing);
+    if (flourTbsp != null && flourTbsp <= 4) return "thickener";
+    return "structure";
+  }
+  return null;
+}
+
+export function detectGlutenRoleHints(ingredients: ConvertedIngredient[]): GlutenRoleHint[] {
+  const out: GlutenRoleHint[] = [];
+  const seen = new Set<string>();
+  for (const ing of ingredients) {
+    const role = inferGlutenRole(ing);
+    if (!role) continue;
+    const ingredient = ing.ingredient ?? ing.metric_en;
+    const key = `${ingredient.toLowerCase()}::${role}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    let hint = "";
+    if (role === "thickener") {
+      const flourTbsp = estimateFlourAmountTbsp(ing);
+      const starchTbsp = flourTbsp == null ? null : Math.max(0.5, Math.round((flourTbsp / 2) * 2) / 2);
+      hint =
+        starchTbsp == null
+          ? "Use cornstarch or potato starch slurry for thickening, or GF all-purpose flour for a roux-style method."
+          : `Use about ${starchTbsp} tbsp cornstarch or potato starch slurry, or the same amount of GF all-purpose flour for a roux-style method.`;
+    } else if (role === "coating") {
+      hint = "Use GF breadcrumbs, crushed GF cornflakes, or rice flour depending on whether you need crunch or a light coating.";
+    } else if (role === "hidden_sauce") {
+      hint = "Replace with a clearly labeled gluten-free sauce or condiment, especially tamari for soy-sauce-style uses.";
+    } else {
+      hint = "Use a GF flour blend that matches the recipe structure; mention xanthan gum only if the blend may not already contain it.";
+    }
+    out.push({ ingredient_en: ingredient, role, hint });
+  }
+  return out;
+}
+
+export function gfSubstitutionMappingEt(
+  metricEnLine: string,
+  ingredientName?: string,
+  role?: GlutenRoleHint["role"] | null,
+): SubstitutionEt | null {
   const t = `${metricEnLine} ${ingredientName ?? ""}`.toLowerCase();
 
   const mk = (ingredient: string, suggestions_et: string[], note_et?: string): SubstitutionEt => ({
     ingredient,
     suggestions_et,
-    note_et,
     deterministic: true,
+    ...(note_et ? { note_et } : {}),
   });
 
   if (includesAny(t, ["all-purpose flour", "wheat flour", "flour", "nisujahu", "jahu", "spelt", "spelta"])) {
+    if (role === "thickener") {
+      return mk(
+        ingredientName || "wheat flour",
+        ["maisitärklis", "kartulitärklis", "gluteenivaba universaalne jahusegu"],
+        "Kastme paksendamiseks kasuta umbes pool jahu kogusest maisi- või kartulitärklist, sega see külma veega vedelaks pastaks ja lisa lõpus. Kui soovid teha roux' laadset põhja, kasuta sama kogus gluteenivaba universaalset jahusegu.",
+      );
+    }
     return mk(
       ingredientName || "wheat flour",
       ["gluteenivaba universaalne jahusegu", "riisijahu + kartulitärklis (küpsetamisel)", "gluteenivaba kaerajahu (sertifitseeritud)"],
-      "Küpsetamisel võib vaja minna ksantaankummi (vt jahusegu juhiseid).",
+      role === "structure"
+        ? "Kasuta võimalusel 1:1 gluteenivaba jahusegu. Kui segu ei sisalda sideainet ja retsept vajab struktuuri (sai, kook, tainas), võib vaja minna ksantaankummi."
+        : "Kasuta roale sobivat gluteenivaba jahusegu; küpsetamisel võib vaja minna ksantaankummi (vt jahusegu juhiseid).",
     );
   }
   if (includesAny(t, ["breadcrumbs", "riivsai"])) {
-    return mk(ingredientName || "breadcrumbs", ["gluteenivabad riivsaiad", "purustatud gluteenivabad maisihelbed"], undefined);
+    return mk(
+      ingredientName || "breadcrumbs",
+      ["gluteenivabad riivsaiad", "purustatud gluteenivabad maisihelbed", "riisijahu"],
+      "Krõbeda paneeringu jaoks sobivad kõige paremini gluteenivabad riivsaiad või purustatud maisihelbed; õhema katte jaoks kasuta riisijahu.",
+    );
   }
   if (includesAny(t, ["soy sauce", "sojakaste"])) {
-    return mk(ingredientName || "soy sauce", ["tamari (gluteenivaba)", "gluteenivaba sojakaste"], "Kontrolli alati märgistust.");
+    return mk(
+      ingredientName || "soy sauce",
+      ["tamari (gluteenivaba)", "gluteenivaba sojakaste"],
+      "Tamari annab kõige lähedasema soolase umami-maitse; kontrolli alati märgistust, sest tavaline sojakaste sisaldab sageli nisu.",
+    );
   }
   if (includesAny(t, ["pasta", "noodle", "nuudel"])) {
     return mk(ingredientName || "pasta/noodles", ["gluteenivaba pasta (mais/riis)", "gluteenivabad nuudlid (riis)"], undefined);
@@ -176,16 +283,46 @@ export function gfSubstitutionMappingEt(metricEnLine: string, ingredientName?: s
     return mk(ingredientName || "semolina", ["maisijahu (polenta)", "riisijahu"], undefined);
   }
   if (includesAny(t, ["teriyaki"])) {
-    return mk(ingredientName || "teriyaki sauce", ["gluteenivaba teriyaki kaste", "tamari + riisisiirup + ingver"], "Enamik teriyaki kastmeid sisaldab nisu sojakastet.");
+    return mk(
+      ingredientName || "teriyaki sauce",
+      ["gluteenivaba teriyaki kaste", "tamari + riisisiirup + ingver"],
+      "Enamik teriyaki kastmeid sisaldab nisu. Kiire asendus: tamari, veidi magusainet ja ingverit, et hoida sama magus-soolane profiil.",
+    );
   }
   if (includesAny(t, ["hoisin"])) {
-    return mk(ingredientName || "hoisin sauce", ["gluteenivaba hoisin kaste", "tamari + maapähklivõi + mesi"], "Kontrolli alati märgistust.");
+    return mk(
+      ingredientName || "hoisin sauce",
+      ["gluteenivaba hoisin kaste", "tamari + maapähklivõi + mesi"],
+      "Kontrolli alati märgistust. Lihtne varuvariant on tamari, maapähklivõi ja veidi mett, mis annab sarnase magusa-umamise kastme.",
+    );
   }
   if (includesAny(t, ["oyster sauce", "austrikaste"])) {
-    return mk(ingredientName || "oyster sauce", ["gluteenivaba austrikaste", "gluteenivaba kalakaste"], "Enamik austrikastmeid sisaldab nisutärklist.");
+    return mk(
+      ingredientName || "oyster sauce",
+      ["gluteenivaba austrikaste", "gluteenivaba kalakaste"],
+      "Enamik austrikastmeid sisaldab nisutärklist; kui kasutad kalakastet, lisa veidi magusust, et maitse oleks ümaram.",
+    );
   }
   if (includesAny(t, ["worcestershire"])) {
-    return mk(ingredientName || "worcestershire sauce", ["gluteenivaba worcestershire kaste", "tamari + õunaäädikas"], "Traditsiooniline Lea & Perrins sisaldab linnaseäädikat.");
+    return mk(
+      ingredientName || "worcestershire sauce",
+      ["gluteenivaba worcestershire kaste", "tamari + õunaäädikas"],
+      "Traditsiooniline Worcestershire võib sisaldada linnaseäädikat; tamari ja õunaäädikas annavad sarnase soolaka-hapuka tulemuse.",
+    );
+  }
+  if (includesAny(t, ["gravy mix"])) {
+    return mk(
+      ingredientName || "gravy mix",
+      ["maisitärklis + gluteenivaba puljong", "gluteenivaba kastmepulber"],
+      "Valmissegudes on sageli nisujahu. Tee kaste gluteenivaba puljongi ja umbes poole koguse tärklisega võrreldes jahupõhise paksendusega.",
+    );
+  }
+  if (includesAny(t, ["cream of mushroom soup", "cream of chicken soup"])) {
+    return mk(
+      ingredientName || "cream soup",
+      ["gluteenivaba koorene seenekaste", "gluteenivaba koorene kanakaste"],
+      "Konservsupid sisaldavad sageli nisujahu. Asenda koduse gluteenivaba kastmega ja paksenda tärkliseseguga alles lõpus.",
+    );
   }
 
   return null;
@@ -194,13 +331,15 @@ export function gfSubstitutionMappingEt(metricEnLine: string, ingredientName?: s
 export function applyGlutenFreeDeterministicSubstitutions(
   ingredients: ConvertedIngredient[],
   glutenFree: boolean,
-): { converted: ConvertedIngredient[]; substitutions: SubstitutionEt[]; flags: GlutenFlag[] } {
+): { converted: ConvertedIngredient[]; substitutions: SubstitutionEt[]; flags: GlutenFlag[]; roleHints: GlutenRoleHint[] } {
   const flags = detectGlutenFlags(ingredients);
-  if (!glutenFree) return { converted: ingredients, substitutions: [], flags };
+  const roleHints = detectGlutenRoleHints(ingredients);
+  if (!glutenFree) return { converted: ingredients, substitutions: [], flags, roleHints };
 
   const subs: SubstitutionEt[] = [];
   const converted = ingredients.map((ing) => {
-    const mapped = gfSubstitutionMappingEt(ing.metric_en, ing.ingredient);
+    const role = inferGlutenRole(ing);
+    const mapped = gfSubstitutionMappingEt(ing.metric_en, ing.ingredient, role);
     if (!mapped) return ing;
 
     subs.push(mapped);
@@ -254,36 +393,36 @@ export function applyGlutenFreeDeterministicSubstitutions(
     return { ...ing, metric_en: newLine };
   });
 
-  return { converted, substitutions: subs, flags };
+  return { converted, substitutions: subs, flags, roleHints };
 }
 
 function formatStarchHint(lang: "et" | "en", starchTbsp: number): string {
   const n = Math.round(starchTbsp * 2) / 2;
   if (lang === "et") {
     const qty = n % 1 === 0 ? String(Math.round(n)) : String(n).replace(".", ",");
-    return `Gluteenivaba kastme paksendamiseks kasuta jahu asemel ${qty} sl maisi- või kartulitärklist, sega esmalt vähese külma veega (slurry) ja vala kastmesse, kuumuta kuni paksenemiseni.`;
+    return `Gluteenivaba kastme paksendamiseks kasuta jahu asemel ${qty} sl maisi- või kartulitärklist, sega see esmalt vähese külma veega ühtlaseks vedelikuks ja vala kastmesse lõpuosas, seejärel kuumuta kuni paksenemiseni.`;
   }
   const qty = n % 1 === 0 ? String(Math.round(n)) : String(n);
-  return `For gluten-free thickening, use ${qty} tbsp cornstarch or potato starch instead of flour: whisk into a little cold water (slurry), then pour into the sauce and simmer until thickened.`;
+  return `For gluten-free thickening, use ${qty} tbsp cornstarch or potato starch instead of flour: whisk it into a little cold water first, then add it near the end and simmer until thickened.`;
 }
 
 function findFlourThickenerAmountTbsp(ingredients: ConvertedIngredient[]): number | null {
   // Heuristic: small amount of flour is likely used for sauce thickening.
   for (const ing of ingredients) {
-    const name = `${ing.ingredient ?? ""} ${ing.original}`.toLowerCase();
-    if (!includesAny(name, ["flour", "jahu"])) continue;
-    if (!ing.parsed || !ing.qty || !ing.unit) continue;
-    const q = ing.qty;
-    const unit = ing.unit;
-    if (unit === "tbsp") return q;
-    if (unit === "tsp") return q / 3;
-    if (unit === "g" && q <= 40) return q / 8; // approx 8g per tbsp flour
-    if (unit === "oz" && q <= 2) return (q * 28.3495) / 8;
+    const tbsp = estimateFlourAmountTbsp(ing);
+    if (tbsp != null && tbsp <= 4) return tbsp;
   }
   return null;
 }
 
-export function postProcessStepsForGlutenFreeSauce(
+function formatCoatingHint(lang: "et" | "en"): string {
+  if (lang === "et") {
+    return "Paneeringu jaoks kasuta gluteenivabu riivsaidu või purustatud gluteenivabu maisihelbeid; õhema katte jaoks sobib riisijahu.";
+  }
+  return "For breading, use gluten-free breadcrumbs or crushed gluten-free cornflakes; for a lighter coating, use rice flour.";
+}
+
+export function postProcessStepsForGlutenFreeTechniques(
   stepsOut: string[],
   ingredientsForHeuristic: ConvertedIngredient[],
   outputLang: "et" | "en",
@@ -298,16 +437,26 @@ export function postProcessStepsForGlutenFreeSauce(
     return Math.max(0.5, flourTbsp / 2);
   })();
 
-  const sauceKeywords = outputLang === "et" ? ["kaste", "kastme", "paksen"] : ["sauce", "gravy", "thicken"];
+  const sauceKeywords = outputLang === "et" ? ["kaste", "kastme", "paksen", "roux"] : ["sauce", "gravy", "thicken", "roux"];
   const flourKeywords = outputLang === "et" ? ["jahu"] : ["flour"];
+  const coatingKeywords = outputLang === "et" ? ["paneeri", "kat", "riivsai", "krõbe"] : ["coat", "dredge", "breadcrumb", "breaded", "crisp"];
 
-  let injected = false;
+  let sauceInjected = false;
+  let coatingInjected = false;
+  const hasCoatingIngredient = ingredientsForHeuristic.some((ing) =>
+    includesAny(`${ing.metric_en} ${ing.ingredient ?? ""} ${ing.original}`.toLowerCase(), COATING_KEYWORDS),
+  );
   return stepsOut.map((s) => {
-    if (injected) return s;
     const lower = s.toLowerCase();
     if (includesAny(lower, sauceKeywords) && includesAny(lower, flourKeywords)) {
-      injected = true;
+      if (sauceInjected) return s;
+      sauceInjected = true;
       return `${s} ${formatStarchHint(outputLang, starchTbsp)}`;
+    }
+    if (hasCoatingIngredient && includesAny(lower, coatingKeywords)) {
+      if (coatingInjected) return s;
+      coatingInjected = true;
+      return `${s} ${formatCoatingHint(outputLang)}`;
     }
     return s;
   });

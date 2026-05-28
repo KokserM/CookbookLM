@@ -30,6 +30,34 @@ describe("ingredient_parser", () => {
     const p = parseIngredientLine("Salt and pepper to taste");
     expect(p.parsed).toBe(false);
   });
+
+  test("parses parenthetical package sizes into notes", () => {
+    const p = parseIngredientLine("1 (14 oz) can crushed tomatoes, drained");
+
+    expect(p.parsed).toBe(true);
+    expect(p.qty).toBe(1);
+    expect(p.unit).toBe("can");
+    expect(p.ingredient).toBe("crushed tomatoes");
+    expect(p.note).toBe("14 oz, drained");
+  });
+
+  test("parses Estonian household units and ingredients", () => {
+    const p = parseIngredientLine("2 sl nisujahu");
+
+    expect(p.parsed).toBe(true);
+    expect(p.qty).toBe(2);
+    expect(p.unit).toBe("tbsp");
+    expect(p.unitKind).toBe("volume");
+    expect(p.ingredient).toBe("nisujahu");
+  });
+
+  test("parses decimal-comma quantities", () => {
+    const p = parseIngredientLine("3,5 dl piim");
+
+    expect(p.parsed).toBe(true);
+    expect(p.qty).toBeCloseTo(3.5);
+    expect(p.ingredient).toBe("dl piim");
+  });
 });
 
 

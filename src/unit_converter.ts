@@ -1,11 +1,12 @@
 import type { ParsedIngredient } from "./ingredient_parser";
+import type { MeasurementPreference } from "./shared_types";
 
 export type ConvertedIngredient = ParsedIngredient & {
   metric_en: string; // metric English line for translation
-  metric_note_en?: string; // optional note (English) for translation
+  metric_note_en?: string | undefined; // optional note (English) for translation
 };
 
-export type MeasurementSystem = "metric" | "imperial";
+export type MeasurementSystem = MeasurementPreference;
 
 const CONV = {
   lb_g: 453.592,
@@ -152,7 +153,7 @@ function fmtRange(a: { value: number; unit: string }, b: { value: number; unit: 
   return `${fmtNum(a.value)} ${a.unit}–${fmtNum(b.value)} ${b.unit}`;
 }
 
-function pickQtys(p: ParsedIngredient): { a: number; b?: number; isRange: boolean } {
+function pickQtys(p: ParsedIngredient): { a: number; b?: number | undefined; isRange: boolean } {
   const a = p.qty ?? 0;
   const b = p.qty2 ?? undefined;
   return { a, b, isRange: Boolean(p.isRange && b != null) };
@@ -327,6 +328,7 @@ export function convertAllIngredientsToMetricEn(parsed: ParsedIngredient[]): Con
 export function convertParsedIngredientToSystemLine(p: ParsedIngredient, target: MeasurementSystem): ConvertedIngredient {
   // Currently, metric_en field will carry the target-system line (still "metric_en" for backward compat).
   if (target === "metric") return convertParsedIngredientToMetricEn(p);
+  if (target === "source" || target === "mixed") return { ...p, metric_en: p.original };
 
   if (!p.parsed || !p.qty || !p.unit) return { ...p, metric_en: p.original };
 
@@ -384,6 +386,7 @@ export function convertParsedIngredientToSystemLine(p: ParsedIngredient, target:
 
 export function convertStepsTextForSystem(texts: string[], target: MeasurementSystem): string[] {
   if (target === "metric") return texts.map(convertTextImperialToMetricEn);
+  if (target === "source" || target === "mixed") return texts;
 
   // metric -> imperial (°C -> °F, cm -> inch)
   return texts.map((text) => {

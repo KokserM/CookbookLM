@@ -1,6 +1,11 @@
 import { jsPDF } from "jspdf";
 import QRCode from "qrcode";
-import type { RecipeEtResult } from "./shared_types";
+import type { PdfPageFormat, RecipeEtResult } from "./shared_types";
+
+export type PdfRenderOptions = {
+  pageFormat?: PdfPageFormat;
+  language?: "et" | "en";
+};
 
 function slugify(s: string): string {
   return (s || "retsept")
@@ -17,6 +22,33 @@ function fmtDateTimeEt(d = new Date()): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
+
+const PDF_LABELS = {
+  en: {
+    recipeFallback: "Recipe",
+    servings: "Servings",
+    prep: "Prep",
+    cook: "Cook",
+    total: "Total",
+    warning: "Allergen and safety notes",
+    ingredients: "Ingredients",
+    ingredientsContinued: "Ingredients (continued)",
+    instructions: "Instructions",
+    substitutions: "Substitutions",
+  },
+  et: {
+    recipeFallback: "Retsept",
+    servings: "Portsud",
+    prep: "Ettevalm.",
+    cook: "Küpset.",
+    total: "Kokku",
+    warning: "Allergeeni- ja ohutusmärkused",
+    ingredients: "Koostisosad",
+    ingredientsContinued: "Koostisosad (jätkub)",
+    instructions: "Valmistamine",
+    substitutions: "Asendused",
+  },
+} as const;
 
 function detectDataUrlFormat(dataUrl: string): "JPEG" | "PNG" | null {
   if (dataUrl.startsWith("data:image/jpeg")) return "JPEG";
@@ -117,14 +149,15 @@ async function cropImageToRoundedCoverPng(
   return canvas.toDataURL("image/png");
 }
 
-function buildMetaLine(r: RecipeEtResult): string | undefined {
+function buildMetaLine(r: RecipeEtResult, language: "et" | "en"): string | undefined {
+  const labels = PDF_LABELS[language];
   const parts: string[] = [];
-  if (r.servings) parts.push(`Portsud: ${r.servings}`);
+  if (r.servings) parts.push(`${labels.servings}: ${r.servings}`);
   const t = r.times;
   const timeParts: string[] = [];
-  if (t?.prep) timeParts.push(`Ettevalm.: ${t.prep}`);
-  if (t?.cook) timeParts.push(`Küpset.: ${t.cook}`);
-  if (t?.total) timeParts.push(`Kokku: ${t.total}`);
+  if (t?.prep) timeParts.push(`${labels.prep}: ${t.prep}`);
+  if (t?.cook) timeParts.push(`${labels.cook}: ${t.cook}`);
+  if (t?.total) timeParts.push(`${labels.total}: ${t.total}`);
   if (timeParts.length) parts.push(timeParts.join(" · "));
   return parts.length ? parts.join("  |  ") : undefined;
 }
@@ -138,13 +171,17 @@ const TEXT_SECONDARY = { r: 75, g: 85, b: 99 };
 const TEXT_MUTED = { r: 107, g: 114, b: 128 };
 const BORDER_LIGHT = { r: 229, g: 231, b: 235 };
 
-async function buildRecipePdfDoc(result: RecipeEtResult, heroImageDataUrl?: string): Promise<jsPDF> {
-  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4", compress: true });
+async function buildRecipePdfDoc(result: RecipeEtResult, heroImageDataUrl?: string, options: PdfRenderOptions = {}): Promise<jsPDF> {
+  const language = options.language ?? "en";
+  const labels = PDF_LABELS[language];
+  const pageFormat = options.pageFormat ?? "a4";
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: pageFormat, compress: true });
 
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
-  const marginX = 16;
-  const marginTop = 16;
+  const compact = pageFormat === "a5";
+  const marginX = compact ? 12 : 16;
+  const marginTop = compact ? 12 : 16;
   const marginBottom = 14;
   const footerH = 22;
   const SAFE_PAD_X = 10;
@@ -154,8 +191,8 @@ async function buildRecipePdfDoc(result: RecipeEtResult, heroImageDataUrl?: stri
   const bodyBottomY = pageH - marginBottom - footerH;
   const bodyBottomYSafe = bodyBottomY - SAFE_PAD_BOTTOM;
 
-  const title = result.title_et || "Retsept";
-  const metaLine = buildMetaLine(result);
+  const title = result.title_et || labels.recipeFallback;
+  const metaLine = buildMetaLine(result, language);
 
   const setColor = (c: { r: number; g: number; b: number }) => doc.setTextColor(c.r, c.g, c.b);
   const setFillC = (c: { r: number; g: number; b: number }) => doc.setFillColor(c.r, c.g, c.b);
@@ -189,7 +226,7 @@ async function buildRecipePdfDoc(result: RecipeEtResult, heroImageDataUrl?: stri
 
     if (result.warnings_et && result.warnings_et.length) {
       const fullW = pageW - marginX * 2;
-      const headerText = "⚠ Gluteenivaba hoiatus";
+      const headerText = labels.warning;
       const bullets = result.warnings_et.map((w) => `  •  ${w}`);
       doc.setFont("helvetica", "bold");
       doc.setFontSize(9.5);
@@ -264,8 +301,8 @@ async function buildRecipePdfDoc(result: RecipeEtResult, heroImageDataUrl?: stri
   const radius = 5;
 
   const ingBox = 3.2;
-  const ingLineGap = 4.8;
-  const stepLineGap = 4.9;
+  const ingLineGap = compact ? 4.4 : 4.8;
+  const stepLineGap = compact ? 4.5 : 4.9;
 
   const renderHeroInBox = async (x: number, y: number, wBox: number, hBox: number) => {
     if (!heroImageDataUrl) return;
@@ -309,7 +346,7 @@ async function buildRecipePdfDoc(result: RecipeEtResult, heroImageDataUrl?: stri
 
     let idx = startIndex;
     for (; idx < result.ingredients.length; idx++) {
-      const ing = result.ingredients[idx];
+      const ing = result.ingredients[idx]!;
       const line = ing.et || ing.original;
       const wrapped = doc.splitTextToSize(line, maxW);
       const noteLines = ing.metric_notes ? doc.splitTextToSize(ing.metric_notes, maxW) : [];
@@ -355,7 +392,7 @@ async function buildRecipePdfDoc(result: RecipeEtResult, heroImageDataUrl?: stri
     const maxW = pageW - marginX * 2 - numW - SAFE_PAD_X;
 
     for (let i = 0; i < result.steps.length; i++) {
-      const st = result.steps[i];
+      const st = result.steps[i]!;
       const text = st.et || st.original;
       const wrapped = doc.splitTextToSize(text, maxW);
       const needH = wrapped.length * stepLineGap + 3.5;
@@ -392,7 +429,7 @@ async function buildRecipePdfDoc(result: RecipeEtResult, heroImageDataUrl?: stri
     setDrawC(BORDER_LIGHT);
     doc.line(marginX, pos.y - 3, pageW - marginX, pos.y - 3);
 
-    sectionTitle(marginX, pos.y, "Asendused");
+    sectionTitle(marginX, pos.y, labels.substitutions);
     pos.y += 9;
 
     doc.setFont("helvetica", "normal");
@@ -453,7 +490,7 @@ async function buildRecipePdfDoc(result: RecipeEtResult, heroImageDataUrl?: stri
   //   (a) ingredients end Y on the last ingredients page, (b) image bottom Y on that page (page 1 only).
 
   const imgBoxW = colW;
-  const imgBoxH = 78; // consistent, modern card proportion
+  const imgBoxH = compact ? 58 : 78; // consistent, modern card proportion
   const imgBoxY1 = bodyStartY;
   const imgBoxBottomY1 = heroImageDataUrl ? imgBoxY1 + imgBoxH : bodyStartY;
 
@@ -465,7 +502,7 @@ async function buildRecipePdfDoc(result: RecipeEtResult, heroImageDataUrl?: stri
   {
     const yStart = bodyStartY;
     const yMax = bodyBottomYSafe;
-    const ingRes = renderIngredientsColumn(1, ingIndex, leftX, yStart, colW, yMax, "Koostisosad");
+    const ingRes = renderIngredientsColumn(1, ingIndex, leftX, yStart, colW, yMax, labels.ingredients);
     ingIndex = ingRes.nextIndex;
     lastIngredientsEndY = ingRes.endY;
     if (heroImageDataUrl) {
@@ -481,7 +518,7 @@ async function buildRecipePdfDoc(result: RecipeEtResult, heroImageDataUrl?: stri
     renderSmallHeader();
     const yStart = startYOnNewPage;
     const yMax = bodyBottomYSafe;
-    const ingRes = renderIngredientsColumn(page, ingIndex, leftX, yStart, colW, yMax, "Koostisosad (jätkub)");
+    const ingRes = renderIngredientsColumn(page, ingIndex, leftX, yStart, colW, yMax, labels.ingredientsContinued);
     ingIndex = ingRes.nextIndex;
     lastIngredientsEndY = ingRes.endY;
   }
@@ -500,7 +537,7 @@ async function buildRecipePdfDoc(result: RecipeEtResult, heroImageDataUrl?: stri
   }
 
   let pos: FlowPos = { page, y: stepsStartY };
-  pos = renderStepsFullWidth(pos, startYOnNewPage, "Valmistamine");
+  pos = renderStepsFullWidth(pos, startYOnNewPage, labels.instructions);
   const subsEnd = renderSubstitutions(pos, startYOnNewPage);
   doc.setPage(subsEnd.page);
 
@@ -549,15 +586,15 @@ async function buildRecipePdfDoc(result: RecipeEtResult, heroImageDataUrl?: stri
   return doc;
 }
 
-export async function renderRecipePdfArrayBuffer(result: RecipeEtResult, heroImageDataUrl?: string): Promise<ArrayBuffer> {
-  const doc = await buildRecipePdfDoc(result, heroImageDataUrl);
+export async function renderRecipePdfArrayBuffer(result: RecipeEtResult, heroImageDataUrl?: string, options?: PdfRenderOptions): Promise<ArrayBuffer> {
+  const doc = await buildRecipePdfDoc(result, heroImageDataUrl, options);
   // jsPDF supports arraybuffer output for downloads via chrome.downloads.
   return doc.output("arraybuffer") as ArrayBuffer;
 }
 
-export async function generateRecipePdf(result: RecipeEtResult, heroImageDataUrl?: string): Promise<void> {
-  const doc = await buildRecipePdfDoc(result, heroImageDataUrl);
-  const filename = `retsept-${slugify(result.title_et || "retsept")}.pdf`;
+export async function generateRecipePdf(result: RecipeEtResult, heroImageDataUrl?: string, options?: PdfRenderOptions): Promise<void> {
+  const doc = await buildRecipePdfDoc(result, heroImageDataUrl, options);
+  const filename = `recipe-${slugify(result.title_et || "recipe")}.pdf`;
   doc.save(filename);
 }
 

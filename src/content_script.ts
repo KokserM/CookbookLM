@@ -22,7 +22,7 @@ chrome.runtime.onMessage.addListener((msg: any, _sender, sendResponse) => {
       const resp: ExtractResponse = {
         ok: false,
         error:
-          "Sellelt lehelt ei õnnestunud retsepti leida. Kui lehel on „Print recipe“ vaade, ava see ja proovi uuesti.",
+          "Could not find a recipe on this page. If the site has a print recipe view, open it and try again.",
       };
       sendResponse(resp);
       return;

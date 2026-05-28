@@ -3,13 +3,13 @@ export type UnitKind = "mass" | "volume" | "count" | "temp" | "length" | "unknow
 export type ParsedIngredient = {
   original: string;
   parsed: boolean;
-  qty?: number;
-  qty2?: number; // range end
-  unit?: string; // normalized, e.g. "cup", "tbsp", "tsp", "oz", "lb", "clove", "can"
-  unitKind?: UnitKind;
-  ingredient?: string; // remaining ingredient name
-  note?: string; // trailing notes (e.g. "at room temperature")
-  isRange?: boolean;
+  qty?: number | undefined;
+  qty2?: number | undefined; // range end
+  unit?: string | undefined; // normalized, e.g. "cup", "tbsp", "tsp", "oz", "lb", "clove", "can"
+  unitKind?: UnitKind | undefined;
+  ingredient?: string | undefined; // remaining ingredient name
+  note?: string | undefined; // trailing notes (e.g. "at room temperature")
+  isRange?: boolean | undefined;
 };
 
 const UNICODE_FRACTIONS: Record<string, number> = {
@@ -35,8 +35,8 @@ function replaceUnicodeFractions(s: string): string {
 function parseFractionToken(tok: string): number | null {
   const m = tok.match(/^(\d+)\s*\/\s*(\d+)$/);
   if (!m) return null;
-  const a = Number(m[1]);
-  const b = Number(m[2]);
+  const a = Number(m[1]!);
+  const b = Number(m[2]!);
   if (!isFinite(a) || !isFinite(b) || b === 0) return null;
   return a / b;
 }
@@ -49,7 +49,7 @@ function parseNumberToken(tok: string): number | null {
   return null;
 }
 
-function parseLeadingQuantity(s: string): { qty?: number; qty2?: number; rest: string; isRange: boolean } {
+function parseLeadingQuantity(s: string): { qty?: number | undefined; qty2?: number | undefined; rest: string; isRange: boolean } {
   // Supports: "1", "1 1/2", "1-2", "1–2", "1 to 2", "1 and 1/2"
   // Insert spaces around unicode fractions so patterns like "1¼" or "½lb" become parseable.
   let pre = s
@@ -60,38 +60,38 @@ function parseLeadingQuantity(s: string): { qty?: number; qty2?: number; rest: s
 
   const rangeDash = t.match(/^(\d+(?:[.,]\d+)?|\d+\/\d+)\s*(?:-|\u2013|\u2014)\s*(\d+(?:[.,]\d+)?|\d+\/\d+)\s+(.*)$/);
   if (rangeDash) {
-    const a = parseNumberToken(rangeDash[1]);
-    const b = parseNumberToken(rangeDash[2]);
-    if (a != null && b != null) return { qty: a, qty2: b, rest: rangeDash[3], isRange: true };
+    const a = parseNumberToken(rangeDash[1]!);
+    const b = parseNumberToken(rangeDash[2]!);
+    if (a != null && b != null) return { qty: a, qty2: b, rest: rangeDash[3]!, isRange: true };
   }
 
   const rangeTo = t.match(/^(\d+(?:[.,]\d+)?|\d+\/\d+)\s+(?:to)\s+(\d+(?:[.,]\d+)?|\d+\/\d+)\s+(.*)$/i);
   if (rangeTo) {
-    const a = parseNumberToken(rangeTo[1]);
-    const b = parseNumberToken(rangeTo[2]);
-    if (a != null && b != null) return { qty: a, qty2: b, rest: rangeTo[3], isRange: true };
+    const a = parseNumberToken(rangeTo[1]!);
+    const b = parseNumberToken(rangeTo[2]!);
+    if (a != null && b != null) return { qty: a, qty2: b, rest: rangeTo[3]!, isRange: true };
   }
 
   // Mixed number: "1 1/2"
   const mixed = t.match(/^(\d+)\s+(\d+\/\d+)\s+(.*)$/);
   if (mixed) {
-    const a = Number(mixed[1]);
-    const b = parseFractionToken(mixed[2]);
-    if (b != null) return { qty: a + b, rest: mixed[3], isRange: false };
+    const a = Number(mixed[1]!);
+    const b = parseFractionToken(mixed[2]!);
+    if (b != null) return { qty: a + b, rest: mixed[3]!, isRange: false };
   }
 
   // Mixed number after unicode replacement: "1 0.25"
   const mixedDec = t.match(/^(\d+)\s+(0\.\d+)\s+(.*)$/);
   if (mixedDec) {
-    const a = Number(mixedDec[1]);
-    const b = parseNumberToken(mixedDec[2]);
-    if (b != null) return { qty: a + b, rest: mixedDec[3], isRange: false };
+    const a = Number(mixedDec[1]!);
+    const b = parseNumberToken(mixedDec[2]!);
+    if (b != null) return { qty: a + b, rest: mixedDec[3]!, isRange: false };
   }
 
   const single = t.match(/^(\d+(?:[.,]\d+)?|\d+\/\d+)\s+(.*)$/);
   if (single) {
-    const a = parseNumberToken(single[1]);
-    if (a != null) return { qty: a, rest: single[2], isRange: false };
+    const a = parseNumberToken(single[1]!);
+    if (a != null) return { qty: a, rest: single[2]!, isRange: false };
   }
 
   return { rest: normSpace(s), isRange: false };
@@ -143,7 +143,7 @@ function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function matchUnit(rest: string): { unit?: string; unitKind?: UnitKind; rest: string } {
+function matchUnit(rest: string): { unit?: string | undefined; unitKind?: UnitKind | undefined; rest: string } {
   const t = normSpace(rest);
   const lower = t.toLowerCase();
 
@@ -177,8 +177,8 @@ export function parseIngredientLine(line: string): ParsedIngredient {
   let base = original;
   let parenNote: string | undefined;
   if (paren) {
-    base = normSpace(`${paren[1]} ${paren[3]}`);
-    parenNote = normSpace(paren[2]);
+    base = normSpace(`${paren[1]!} ${paren[3]!}`);
+    parenNote = normSpace(paren[2]!);
   }
 
   const { qty, qty2, rest, isRange } = parseLeadingQuantity(base);
@@ -189,7 +189,7 @@ export function parseIngredientLine(line: string): ParsedIngredient {
 
   // Split note after comma
   const [ingredientPart, notePart] = afterUnit.split(/\s*,\s*/, 2);
-  const ingredient = normSpace(ingredientPart);
+  const ingredient = normSpace(ingredientPart ?? "");
   const note = normSpace([parenNote, notePart].filter(Boolean).join(", "));
 
   if (!ingredient) return { original, parsed: false };

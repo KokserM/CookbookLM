@@ -5,17 +5,23 @@
   "scripts": {
     "build": "vite build && vite build -c vite.config.content.ts",
     "dev": "vite",
+    "package": "npm run build && powershell -NoProfile -ExecutionPolicy Bypass -Command \"if (Test-Path cookbooklm-webstore.zip) { Remove-Item cookbooklm-webstore.zip }; Compress-Archive -Path dist/* -DestinationPath cookbooklm-webstore.zip\"",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "description": "",
+  "description": "Chrome extension for extracting recipes, AI-assisted allergen-aware adaptation, and printable PDFs.",
   "devDependencies": {
     "@types/chrome": "^0.1.32",
+    "@types/jsdom": "^28.0.3",
     "@types/node": "^25.0.5",
+    "@types/qrcode": "^1.5.6",
+    "@types/react": "^19.2.15",
+    "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.2",
+    "jsdom": "^29.1.1",
     "typescript": "^5.9.3",
     "vite": "^7.3.1",
     "vitest": "^4.0.16"
