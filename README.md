@@ -62,14 +62,19 @@ After rebuilding, refresh the extension on `chrome://extensions/` to pick up cha
 5. Choose recipe language, measurements, and PDF page size in Settings
 6. The PDF downloads automatically to your Downloads folder
 
-## Chrome Web Store Checklist
+## Chrome Web Store Release
 
-- Add a hosted privacy policy URL based on `PRIVACY.md`
-- Confirm `public/manifest.json` version matches the release tag
-- Run `npm run build` and `npm run package`
-- Verify icons exist under `public/icons/`
-- Prepare screenshots and permission justifications for `storage`, `activeTab`, `scripting`, `downloads`, `offscreen`, `sidePanel`, `notifications`, and host access
-- Smoke-test missing API key, recipe detection, AI processing, and printable PDFs before upload
+CookbookLM has been submitted to Chrome Web Store review. For future updates:
+
+```powershell
+npm test
+npm run typecheck
+npm run package
+```
+
+Upload the generated `cookbooklm-webstore.zip` in the Chrome Web Store Developer Dashboard. The ZIP is built from `dist/` and includes the compiled extension pages, service worker, content script, assets, and icons.
+
+Before each version update, smoke-test missing API key handling, recipe detection, AI processing, PDF download, and the packaged icons.
 
 ## Project Structure
 
