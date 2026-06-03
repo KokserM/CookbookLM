@@ -3,9 +3,11 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "build": "vite build && vite build -c vite.config.content.ts",
+    "patch:jspdf": "node scripts/patch-jspdf-mv3.mjs",
+    "verify:remote-code": "node scripts/verify-no-remote-code.mjs",
+    "build": "npm run patch:jspdf && vite build && vite build -c vite.config.content.ts && npm run verify:remote-code -- dist",
     "dev": "vite",
-    "package": "npm run build && powershell -NoProfile -ExecutionPolicy Bypass -Command \"if (Test-Path cookbooklm-webstore.zip) { Remove-Item cookbooklm-webstore.zip }; Compress-Archive -Path dist/* -DestinationPath cookbooklm-webstore.zip\"",
+    "package": "npm run build && powershell -NoProfile -ExecutionPolicy Bypass -Command \"if (Test-Path cookbooklm-webstore.zip) { Remove-Item cookbooklm-webstore.zip }; Compress-Archive -Path dist/* -DestinationPath cookbooklm-webstore.zip\" && npm run verify:remote-code -- --zip cookbooklm-webstore.zip",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },

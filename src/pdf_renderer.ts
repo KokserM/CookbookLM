@@ -592,10 +592,3 @@ export async function renderRecipePdfArrayBuffer(result: RecipeEtResult, heroIma
   return doc.output("arraybuffer") as ArrayBuffer;
 }
 
-export async function generateRecipePdf(result: RecipeEtResult, heroImageDataUrl?: string, options?: PdfRenderOptions): Promise<void> {
-  const doc = await buildRecipePdfDoc(result, heroImageDataUrl, options);
-  const filename = `recipe-${slugify(result.title_et || "recipe")}.pdf`;
-  doc.save(filename);
-}
-
-

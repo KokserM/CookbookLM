@@ -22,4 +22,5 @@ You can remove your API key from the extension settings at any time. You can als
 
 ## Contact
 
-For Chrome Web Store publication, replace this section with the project maintainer contact email and a hosted privacy policy URL.
+For questions or privacy requests, contact the maintainer through the CookbookLM GitHub repository:
+https://github.com/KokserM/CookbookLM/issues
